@@ -1,0 +1,47 @@
+{% extends 'blog-template.html' %}
+
+{% block content %}
+
+    <h2 class="row header">User Signup</h2>
+    <form method="post" class="row">
+        <table>
+            <tr>
+                <td class="label">Username:</td>
+                <td>
+                    <input type="text" name="username" value="{{ username }}">
+                </td>
+                <td class="error">{{ error_inval_username }}
+                                  {{ error_unavail_username }}</td>
+            </tr>
+            <tr>
+                <td class="label">Password:</td>
+                <td>
+                    <input type="password" name="password" value="">
+                </td>
+                <td class="error">{{ error_password }}</td>
+
+            </tr>
+            <tr>
+                <td class="label">Confirm Password:</td>
+                <td>
+                    <input type="password" name="confirm" value="">
+                </td>
+                <td class="error">{{ error_confirm }}</td>
+
+            </tr>
+            <tr>
+                <td class="label">Email:</td>
+                <td>
+                    <input type="text" name="email" value="{{ email }}">
+                </td>
+                <td class="error">{{ error_inval_email }}
+                                  {{error_unavail_email}}</td>
+            </tr>
+        </table>
+        <button type="submit" class="btn btn-default">Sign Up!</button>
+    </form>
+    <br class="row">
+    <br class="row">
+    <div class="row">Already have an account? Log in
+                    <a href="/blog/login">here</a></div>
+{% endblock %}

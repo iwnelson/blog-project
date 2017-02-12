@@ -1,0 +1,33 @@
+{% extends 'blog-template.html' %}
+
+{% block content %}
+
+    <a href="/blog" class="row">Back to blog home</a>
+
+
+    <h2 class="row header">User Login</h2>
+    <form method="post" class="row">
+        <div class="form-inline">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input class="form-control" type="text" name="username"
+                       id="username" value="{{ username }}">
+            </div>
+        </div>
+        <div class="form-inline">
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input class="form-control" type="password" name="password"
+                       id="password" value="">
+            </div>
+        </div>
+        <div class="error">{{error}}</div>
+        <button type="submit" class="btn btn-default">Login</button>
+    </form>
+    <br class="row">
+    <br class="row">
+    <div class="row">Don't have an account? Sign up
+                    <a href="/blog/signup">here</a></div>
+
+
+{% endblock %}

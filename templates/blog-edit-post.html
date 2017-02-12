@@ -1,0 +1,22 @@
+{% extends 'blog-template.html' %}
+
+{% block content %}
+
+<a href="/blog" class="row">Back to blog home</a>
+
+<div class="row new-post">
+    <form method="post" class="col-xs-12">
+        <label class="col-xs-12">
+            <div class="form-labels">Subject</div>
+            <input type="text" name="subject" value="{{subject}}">
+        </label>
+        <label class="col-xs-12">
+            <div class="form-labels">Post</div>
+            <textarea name="post">{{post}}</textarea>
+        </label>
+        <div class="error col-xs-12">{{error}}</div>
+        <button type="submit" class="btn btn-default">Post it!</button>
+    </form>
+</div>
+
+{% endblock %}
