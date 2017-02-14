@@ -171,7 +171,9 @@ class UserInfo(db.Model):
 # blog main page that lists entries
 class BlogMain(Handler):
     def get(self):
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY created
                                DESC LIMIT 10''')
 
@@ -179,7 +181,9 @@ class BlogMain(Handler):
                                       user_id = user_id)
 
     def post(self):
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         like = self.request.get('like')
         comment = self.request.get('comment')
         delete_comment = self.request.get('delete_comment')
@@ -348,7 +352,9 @@ class NewPost(Handler):
     def post(self):
         subject = self.request.get("subject")
         post = self.request.get("post")
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         username = UserInfo.by_id(user_id).username
 
         if subject and post:
@@ -402,7 +408,9 @@ class EditPost(Handler):
 # permalink page
 class Permalink(Handler):
     def get(self):
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         key = self.request.get('postid')
         if key:
             post = Blog.get_by_id(int(key))
@@ -416,7 +424,9 @@ class Permalink(Handler):
                      user_id = user_id)
 
     def post(self):
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         key = self.request.get('postid')
         like = self.request.get('like')
         comment = self.request.get('comment')
@@ -537,7 +547,9 @@ class Permalink(Handler):
 # comment page
 class Comment(Handler):
     def get(self):
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         key = self.request.get('postid')
         if key:
             post = Blog.get_by_id(int(key))
@@ -551,7 +563,9 @@ class Comment(Handler):
                      comment = '', user_id = user_id)
 
     def post(self):
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         key = self.request.get('postid')
         like = self.request.get('like')
         comment = self.request.get('comment')
@@ -677,7 +691,9 @@ class Comment(Handler):
 # edit comments
 class EditComment(Handler):
     def get(self):
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         edit_comment = self.request.get('edit_comment')
         comment_text = edit_comment.split('|')[0]
         key = edit_comment.split('|')[-1]
@@ -696,7 +712,9 @@ class EditComment(Handler):
         edit_comment = self.request.get('edit_comment')
         comment_text = edit_comment.split('|')[0]
         key = edit_comment.split('|')[-1]
-        user_id = self.read_secure_cookie('user_id').split('|')[0]
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
         like = self.request.get('like')
         comment = self.request.get('comment')
         comment_change = self.request.get('comment_change')
