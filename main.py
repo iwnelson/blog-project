@@ -174,6 +174,8 @@ class BlogMain(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY created
                                DESC LIMIT 10''')
 
@@ -184,6 +186,8 @@ class BlogMain(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         like = self.request.get('like')
         comment = self.request.get('comment')
         delete_comment = self.request.get('delete_comment')
@@ -355,6 +359,8 @@ class NewPost(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         username = UserInfo.by_id(user_id).username
 
         if subject and post:
@@ -411,6 +417,8 @@ class Permalink(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         key = self.request.get('postid')
         if key:
             post = Blog.get_by_id(int(key))
@@ -427,6 +435,8 @@ class Permalink(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         key = self.request.get('postid')
         like = self.request.get('like')
         comment = self.request.get('comment')
@@ -550,6 +560,8 @@ class Comment(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         key = self.request.get('postid')
         if key:
             post = Blog.get_by_id(int(key))
@@ -566,6 +578,8 @@ class Comment(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         key = self.request.get('postid')
         like = self.request.get('like')
         comment = self.request.get('comment')
@@ -694,6 +708,8 @@ class EditComment(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         edit_comment = self.request.get('edit_comment')
         comment_text = edit_comment.split('|')[0]
         key = edit_comment.split('|')[-1]
@@ -715,6 +731,8 @@ class EditComment(Handler):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
             user_id = user_id_cookie.split('|')[0]
+        else:
+            user_id = None
         like = self.request.get('like')
         comment = self.request.get('comment')
         comment_change = self.request.get('comment_change')
