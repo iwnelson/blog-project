@@ -1,3 +1,17 @@
+"SublimeLinter":
+{
+    "@python": 2.7,
+    "linters":
+    {
+        "pep8":
+        {
+            "@disable": false,
+            "ignore": "E127,E128",
+            "max-line-length": 512
+        }
+    }
+}
+
 {
   "vars": {
     "@gray-base": "#000",
