@@ -17,7 +17,6 @@
 
 # python standard libraries to import
 import os
-import datetime  # will use later to correct time zone to eastern standard time
 import jinja2
 import webapp2
 import re
@@ -36,7 +35,8 @@ jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader
 
 # Handlers
 class MainHandler(webapp2.RequestHandler):
-    '''General Handler functions'''
+    """General functions and functions that retrieve/set variables from
+    cookies/url for blog"""
     def write(self, *a, **kw):
         '''Simplifies write'''
         self.response.out.write(*a, **kw)
@@ -62,19 +62,16 @@ class MainHandler(webapp2.RequestHandler):
         cookie_val = self.request.cookies.get(name)
         return cookie_val and check_secure_val(cookie_val)
 
-    def login(self, user_id):
+    def login(self, user):
         '''Takes user_id(must exist in UserInfo) and adds secure hmac cookie
         for it'''
-        user_id = str(user_id.key().id())
+        user_id = str(user.key().id())
         self.set_secure_cookie('user_id', user_id)
 
     def logout(self):
         '''Overwrites user_id function with None value'''
         self.response.headers.add_header('Set-Cookie', 'user_id=; Path=/')
 
-
-class RetrieveVarsHandler(MainHandler):
-    """functions that retrieve variables from cookies/url for blog"""
     def get_user(self):
         '''Retrieves user id from cookie, checks hmac encryption if user id exists
         in UserInfo database. If user_id exists, returns user_id and user
@@ -99,7 +96,7 @@ class RetrieveVarsHandler(MainHandler):
             post = Blog.get_by_id(int(key))
         if not post:
             post = None
-            return post
+        return post
 
     def get_blog_actions(self):
         '''For post actions such as: liking (and unliking), commenting
@@ -124,8 +121,8 @@ class RetrieveVarsHandler(MainHandler):
         edit_post = self.request.get('edit_post')
         if not edit_post:
             edit_post = None
-        return like, comment, delete_comment, edit_comment, delete_post,
-        edit_post
+        return (like, comment, delete_comment, edit_comment, delete_post,
+                edit_post)
 
 
 class ValidityChecksHandler():
@@ -152,29 +149,53 @@ class PostsHandler():
         p = Blog(subject=subject, post=post, user_id=user_id,
                  username=username, likes=0)
         p.put()
-        post_id_str = str(p.key().id())
-        return post_id_str
+        redirect = '/blog/pl/?postid=%s' % str(p.key().id())
+        return redirect
 
-    def edit_post(self, post, user_id, new_subject, new_post):
-        '''Edits exising post & subject and stores new vals to Blog Database'''
+    def edit_post_redirect(self, edit_post, user_id):
+        post = Blog.get_by_id(int(edit_post))
+        error = None
+        redirect = None
+        if post.user_id != int(user_id):
+            error = 'You can only edit your own posts.'
+        else:
+            redirect = '/blog/edit-post/?postid=%s' % str(post.key().id())
+        return redirect, error
+
+    def edit_post_store(self, post, user_id, new_subject, new_post):
+        '''Edits exising post & subject and stores new vals to Blog Database;
+        includes permission check'''
+        error = None
+        redirect = None
         if post.user_id != int(user_id):
             error = 'You can only edit your own posts'
-            return error
         else:
             post.subject = new_subject
             post.post = new_post
             post.put()
-            post_id_str = str(post.key().id())
-            return post_id_str
+            redirect = '/blog/pl/?postid=%s' % str(post.key().id())
+        return redirect, error
+
+    def delete_post(self, delete_post, user_id):
+        post = Blog.get_by_id(int(delete_post))
+        error = None
+        redirect = None
+        if post.user_id != int(user_id):
+            error = 'You can only delete your own posts.'
+        else:
+            post.delete()
+            redirect = '/blog'
+        return redirect, error
 
 
 class LikesHandler():
     """Contains function to like/unlike post & store data to Blog database
     including permission check"""
-    def like(self, post, user_id):
+    def like(self, like, user_id):
+        post = Blog.get_by_id(int(like))
+        error = None
         if int(user_id) == post.user_id:
             error = 'You cannnot like your own post, you egomaniac.'
-            return error
         elif user_id in post.liked_by:
             post.liked_by.remove(user_id)
             post.likes += -1
@@ -183,800 +204,376 @@ class LikesHandler():
             post.likes += 1
             post.liked_by.append(user_id)
             post.put()
+        return error
 
 
 class CommentsHandler():
     """Contains functions to add, edit, and delete comments"""
     def add_comm(self, post, user, comment):
+        '''Adds comment'''
         username = user.username
         post_id_str = str(post.key().id())
         post.comments.append(comment + '|' + username + '|' + post_id_str)
         post.put()
+        redirect = '/blog/pl/?postid=%s' % post_id_str
+        return redirect
 
-    def edit_comm(self, user, exist_comment, comment_change):
+    def delete_comm(self, user, comment):
+        '''Checks user permission then deletes comment'''
+        post_id = comment.split('|')[-1]
+        post = Blog.get_by_id(int(post_id))
+        comment_user = comment.split('|')[-2]
+        username = user.username
+        error = None
+        if username != comment_user:
+            error = 'You can only delete your own comments.'
+        else:
+            post.comments.remove(comment)
+            post.put()
+        return error
+
+    def edit_comm_redirect(self, user, edit_comment):
+        comment_user = edit_comment.split('|')[-2]
+        error = None
+        redirect = None
+        if user.username != comment_user:
+            error = 'You can only edit your own comments'
+        else:
+            redirect = '/blog/edit-com/?exist_comment=%s' % edit_comment
+        return redirect, error
+
+    def edit_comm_post(self, user, exist_comment, comment_change):
+        '''Checks user permission then edits comment'''
         post_id = exist_comment.split('|')[-1]
         post = Blog.get_by_id(int(post_id))
         exist_comment_user = exist_comment.split('|')[-2]
         username = user.username
+        error = None
+        redirect = None
         if username != exist_comment_user:
             error = 'You can only edit your own comments.'
-            return error
         else:
             comment_index = post.comments.index(exist_comment)
             new_comment = comment_change + '|' + username + '|' + post_id
             post.comments[comment_index] = new_comment
             post.put()
-
-    def delete_comm():
-        pass
-
+            redirect = '/blog/pl/?postid=%s' % post_id
+        return redirect, error
 
 
-        if delete_comment:
-            post = Blog.get_by_id(int(delete_comment.split('|')[-1]))
-            comment_user = delete_comment.split('|')[-2]
-
-            if not user_id:
-                error = 'You must log in to delete comments.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only delete your own comments.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                post.comments.remove(delete_comment)
-                post.put()
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             user_id = user_id)
-
-
-
-
-
-
-
-
-
-
-
-# blog main page that lists entries
-class BlogMain(MainHandler):
+class BlogMain(MainHandler, PostsHandler, LikesHandler, CommentsHandler):
+    '''Blog main page that lists 10 most recent entries and allows actions on
+    posts'''
     def get(self):
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
-        else:
-            user_id = None
+        user_id, user = self.get_user()
         posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY created
                                DESC LIMIT 10''')
+        template = 'blog-main.html'
+        params = {'posts': posts, 'user': user}
 
-        self.render('blog-main.html', posts = posts,
-                                      user_id = user_id)
+        self.render(template, **params)
 
     def post(self):
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
+        user_id, user = self.get_user()
+        (like, comment, delete_comment, edit_comment, delete_post,
+            edit_post) = self.get_blog_actions()
+        template = 'blog-main.html'
+        params = {'user': user}
+        error = None
+        redirect = None
+
+        if not user:
+            error = 'You must log in to act on posts'
         else:
-            user_id = None
-        like = self.request.get('like')
-        comment = self.request.get('comment')
-        delete_comment = self.request.get('delete_comment')
-        edit_comment = self.request.get('edit_comment')
-        delete_post = self.request.get('delete_post')
-        edit_post = self.request.get('edit_post')
+            if like:
+                error = self.like(like, user_id)
 
-        # likes/unlikes post with validity checks
-        if like:
-            post = Blog.get_by_id(int(like))
+            elif comment:
+                redirect = '/blog/com/?postid=%s' % comment
 
-            if not user_id:
-                error = 'You must log in to like posts.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
+            elif delete_comment:
+                error = self.delete_comm(user, delete_comment)
 
-            elif int(user_id) == post.user_id:
-                error = 'You cannnot like your own post, you egomaniac.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
+            elif edit_comment:
+                redirect, error = self.edit_comm_redirect(user, edit_comment)
 
-            elif user_id in post.liked_by:
-                post.liked_by.remove(user_id)
-                post.likes += -1
-                post.put()
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             user_id = user_id)
+            elif delete_post:
+                redirect, error = self.delete_post(delete_post, user_id)
 
-            elif like and user_id:
-                post.likes += 1
-                post.liked_by.append(user_id)
-                post.put()
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             user_id = user_id)
+            elif edit_post:
+                redirect, error = self.edit_post_redirect(edit_post, user_id)
 
-        # redirects to comment on post with validity checks
-        if comment:
-            post = Blog.get_by_id(int(comment))
+        if error:
+            params['error'] = error
 
-            if not user_id:
-                error = 'You must log in to comment on posts.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif comment and user_id:
-                self.redirect('/blog/com/?postid=%s' % comment)
-
-        # deletes comments with validity checks
-        if delete_comment:
-            post = Blog.get_by_id(int(delete_comment.split('|')[-1]))
-            comment_user = delete_comment.split('|')[-2]
-
-            if not user_id:
-                error = 'You must log in to delete comments.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only delete your own comments.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                post.comments.remove(delete_comment)
-                post.put()
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             user_id = user_id)
-
-        # redirects to edit comments page with validity checks
-        if edit_comment:
-            post_id = edit_comment.split('|')[-1]
-            post = Blog.get_by_id(int(post_id))
-            comment_user = edit_comment.split('|')[-2]
-
-            if not user_id:
-                error = 'You must log in to edit comments.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only edit your own comments.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                self.redirect('/blog/edit-com/?edit_comment=%s' %
-                                                edit_comment)
-
-        # deletes posts with validity checks
-        if delete_post:
-            post = Blog.get_by_id(int(delete_post))
-
-            if not user_id:
-                error = 'You must log in to delete posts.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only delete your own posts.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                post.delete()
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             user_id = user_id)
-
-        # redirects to edit posts page with validity checks
-        if edit_post:
-            post = Blog.get_by_id(int(edit_post))
-
-            if not user_id:
-                error = 'You must log in to edit posts.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only edit your own posts.'
-                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
-                                       created DESC LIMIT 10''')
-                self.render('blog-main.html', posts = posts,
-                             error = error, user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                self.redirect('/blog/edit-post/?postid=%s' %
-                                            str(post.key().id()))
+        if not redirect:
+            posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY created
+                                   DESC LIMIT 10''')
+            params['posts'] = posts
+            self.render(template, **params)
+        else:
+            self.redirect(redirect)
 
 
-# new post page
-class NewPost(MainHandler):
+class NewPost(MainHandler, PostsHandler):
+    '''New post page'''
     def get(self):
-        user_id = self.read_secure_cookie('user_id')
-        if not user_id:
+        user_id, user = self.get_user()
+        template = 'blog-post-page.html'
+        params = {'user': user, 'subject': '', 'post': ''}
+
+        if not user:
             self.redirect('/blog/login')
         else:
-            self.render('blog-post-page.html')
+            self.render(template, **params)
 
     def post(self):
+        user_id, user = self.get_user()
+        template = 'blog-post-page.html'
         subject = self.request.get("subject")
         post = self.request.get("post")
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
-        else:
-            user_id = None
-        username = UserInfo.by_id(user_id).username
+        params = {'user': user, 'subject': subject, 'post': post}
+        redirect = None
 
-        if subject and post:
-            p = Blog(subject = subject, post = post,
-              user_id = int(user_id), username = username, likes = 0)
-            p.put()
-            self.redirect('/blog/pl/?postid=%s' % str(p.key().id()))
+        if not user:
+            self.redirect('/blog/login')
+        elif subject and post:
+            redirect = self.new_post(subject, post, user)
         else:
-            error = '''You must provide a Subject and Post to submit
-                       your entry, you jabroni.'''
-            self.render('blog-post-page.html', subject = subject,
-                        post = post, error = error)
+            params['error'] = 'You must provide a Subject and Post'
 
-# edit post page
-class EditPost(MainHandler):
+        if redirect:
+            self.redirect(redirect)
+        else:
+            self.render(template, **params)
+
+
+class EditPost(MainHandler, PostsHandler):
+    '''Edit existing post page'''
     def get(self):
-        user_id = self.read_secure_cookie('user_id')
-        post_id = self.request.get('postid')
-        post_to_edit = Blog.get_by_id(int(post_id))
-        if not user_id:
+        user_id, user = self.get_user()
+        post = self.get_post()
+        template = 'blog-post-page.html'
+        params = {'user': user, 'subject': post.subject, 'post': post.post}
+
+        if not user:
             self.redirect('/blog/login')
         else:
-            self.render('blog-post-page.html',
-                         subject = post_to_edit.subject,
-                         post = post_to_edit.post)
+            self.render(template, **params)
 
     def post(self):
-        user_id = self.read_secure_cookie('user_id')
-        post_id = self.request.get('postid')
-        post_to_edit = Blog.get_by_id(int(post_id))
+        user_id, user = self.get_user()
+        post = self.get_post()
+        template = 'blog-post-page.html'
+        new_subject = self.request.get("subject")
+        new_post = self.request.get("post")
+        params = {'user': user, 'subject': new_subject, 'post': new_post}
+        error = None
+        redirect = None
 
-        subject = self.request.get("subject")
-        post = self.request.get("post")
-
-        if not subject and post:
-            error = '''You must provide a Subject and Post to submit
-                       your entry, you jabroni.'''
-            self.render('blog-post-page.html', subject = subject,
-                        post = post, error = error)
-        elif post_to_edit.user_id != int(user_id):
-            error = 'You can only edit your own posts'
-            self.render('blog-post-page.html', subject = subject,
-                        post = post, error = error)
-        elif post_to_edit.user_id == int(user_id):
-            post_to_edit.subject = subject
-            post_to_edit.post = post
-            post_to_edit.put()
-            self.redirect('/blog/pl/?postid=%s' %
-                            str(post_to_edit.key().id()))
-
-# permalink page
-class Permalink(MainHandler):
-    def get(self):
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
+        if not user:
+            self.redirect('/blog/login')
         else:
-            user_id = None
-        key = self.request.get('postid')
-        if key:
-            post = Blog.get_by_id(int(key))
+            redirect, error = self.edit_post_store(post, user_id, new_subject,
+                                                   new_post)
+
+        if error:
+            params['error'] = error
+
+        if redirect:
+            self.redirect(redirect)
+        else:
+            post = self.get_post()
+            params['post'] = post
+            self.render(template, **params)
 
 
-        if not post:
+class Permalink(MainHandler, PostsHandler, LikesHandler, CommentsHandler):
+    '''Permalink page - page that renders single post and comments. Is redirected
+    to after: a post is created, a post is edited, a comment is created, or a
+    comment is edited.'''
+    def get(self):
+        user_id, user = self.get_user()
+        post = self.get_post()
+        template = 'blog-permalink.html'
+        params = {'user': user, 'post': post}
+
+        if post:
+            self.render(template, **params)
+        else:
             self.error(404)
             return
 
-        self.render('blog-permalink.html', post = post,
-                     user_id = user_id)
-
     def post(self):
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
+        user_id, user = self.get_user()
+        post = self.get_post()
+        (like, comment, delete_comment, edit_comment, delete_post,
+            edit_post) = self.get_blog_actions()
+        template = 'blog-permalink.html'
+        params = {'user': user, 'post': post}
+        error = None
+        redirect = None
+
+        if not user:
+            error = 'You must log in to act on posts'
         else:
-            user_id = None
-        key = self.request.get('postid')
-        like = self.request.get('like')
-        comment = self.request.get('comment')
-        edit_comment = self.request.get('edit_comment')
-        delete_comment = self.request.get('delete_comment')
-        delete_post = self.request.get('delete_post')
-        edit_post = self.request.get('edit_post')
+            if like:
+                error = self.like(like, user_id)
 
-        # likes/unlikes post with validity checks
-        if key:
-            post = Blog.get_by_id(int(key))
+            elif comment:
+                redirect = '/blog/com/?postid=%s' % comment
 
-        if like:
-            if not user_id:
-                error = 'You must log in to like posts.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
+            elif delete_comment:
+                error = self.delete_comm(user, delete_comment)
 
-            elif int(user_id) == post.user_id:
-                error = 'You cannnot like your own post, you egomaniac.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
+            elif edit_comment:
+                redirect, error = self.edit_comm_redirect(user, edit_comment)
 
-            elif user_id in post.liked_by:
-                post.liked_by.remove(user_id)
-                post.likes += -1
-                post.put()
-                self.render('blog-permalink.html', post = post,
-                             user_id = user_id)
+            elif delete_post:
+                redirect, error = self.delete_post(delete_post, user_id)
 
-            elif like and user_id:
-                post.likes += 1
-                post.liked_by.append(user_id)
-                post.put()
-                self.render('blog-permalink.html', post = post,
-                             user_id = user_id)
+            elif edit_post:
+                redirect, error = self.edit_post_redirect(edit_post, user_id)
 
-        # redirects to comment page with validity checks
-        if comment:
-            if not user_id:
-                error = 'You must log in to comment on posts.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
+        if error:
+            params['error'] = error
 
-            elif comment and user_id:
-                self.redirect('/blog/com/?postid=%s' % comment)
+        if not redirect:
+            post = self.get_post()
+            params['post'] = post
+            self.render(template, **params)
+        else:
+            self.redirect(redirect)
 
-        # redirects to edit comment page with validity checks
-        if edit_comment:
-            comment_user = edit_comment.split('|')[-2]
 
-            if not user_id:
-                error = 'You must log in to edit comments.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only edit your own comments.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                self.redirect('/blog/edit-com/?edit_comment=%s' %
-                                                    edit_comment)
-
-        # deletes comments with validity checks
-        if delete_comment:
-            comment_user = delete_comment.split('|')[-2]
-
-            if not user_id:
-                error = 'You must log in to delete comments.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only delete your own comments.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                post.comments.remove(delete_comment)
-                post.put()
-                self.render('blog-permalink.html', post = post,
-                             user_id = user_id)
-
-        # deletes posts with validity checks
-        if delete_post:
-            if not user_id:
-                error = 'You must log in to delete posts.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only delete your own posts.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                post.delete()
-                self.redirect('/blog')
-
-        # redirects to edit post page with validity checks
-        if edit_post:
-            if not user_id:
-                error = 'You must log in to edit posts.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only edit your own posts.'
-                self.render('blog-permalink.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                self.redirect('/blog/edit-post/?postid=%s' %
-                                            str(post.key().id()))
-
-# comment page
-class Comment(MainHandler):
+class Comment(MainHandler, PostsHandler, LikesHandler, CommentsHandler):
+    '''Posts new comments on blog posts.'''
     def get(self):
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
+        user_id, user = self.get_user()
+        post = self.get_post()
+        template = 'blog-new-comment-page.html'
+        params = {'user': user, 'post': post, 'comment': ''}
+
+        if post:
+            self.render(template, **params)
         else:
-            user_id = None
-        key = self.request.get('postid')
-        if key:
-            post = Blog.get_by_id(int(key))
-
-
-        if not key:
             self.error(404)
             return
 
-        self.render('blog-comment-page.html', post = post,
-                     comment = '', user_id = user_id)
-
     def post(self):
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
+        user_id, user = self.get_user()
+        post = self.get_post()
+        (like, comment, delete_comment, edit_comment, delete_post,
+            edit_post) = self.get_blog_actions()
+        template = 'blog-new-comment-page.html'
+        params = {'user': user, 'post': post, 'comment': comment}
+        error = None
+        redirect = None
+
+        if not user:
+            error = 'You must log in to act on posts'
         else:
-            user_id = None
-        key = self.request.get('postid')
-        like = self.request.get('like')
-        comment = self.request.get('comment')
-        edit_comment = self.request.get('edit_comment')
-        delete_comment = self.request.get('delete_comment')
-        delete_post = self.request.get('delete_post')
-        edit_post = self.request.get('edit_post')
+            if like:
+                error = self.like(like, user_id)
 
-        if key:
-            post = Blog.get_by_id(int(key))
+            elif comment:
+                redirect = self.add_comm(post, user, comment)
 
-        # likes/unlikes post with validity checks
-        if like:
-            if not user_id:
-                error = 'You must log in to like posts.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
+            elif delete_comment:
+                error = self.delete_comm(user, delete_comment)
 
-            elif int(user_id) == post.user_id:
-                error = "You can't like your own post, ya egomaniac."
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
+            elif edit_comment:
+                redirect, error = self.edit_comm_redirect(user, edit_comment)
 
-            elif user_id in post.liked_by:
-                post.liked_by.remove(user_id)
-                post.likes += -1
-                post.put()
-                self.render('blog-comment-page.html', post = post,
-                             user_id = user_id)
+            elif delete_post:
+                redirect, error = self.delete_post(delete_post, user_id)
 
-            elif like and user_id:
-                post.likes += 1
-                post.liked_by.append(user_id)
-                post.put()
-                self.render('blog-comment-page.html', post = post,
-                             user_id = user_id)
+            elif edit_post:
+                redirect, error = self.edit_post_redirect(edit_post, user_id)
 
-        # comments on post with validity checks
-        if comment:
-            if not user_id:
-                error = 'You must log in to comment on posts.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
+        if error:
+            params['error'] = error
 
-            elif comment and user_id:
-                commenting_user = UserInfo.by_id(user_id)
-                post.comments.append(comment + '|' +
-                                commenting_user.username + '|' + key)
-                post.put()
-                self.render('blog-comment-page.html', post = post,
-                             user_id = user_id)
+        if not redirect:
+            post = self.get_post()
+            params['post'] = post
+            self.render(template, **params)
+        else:
+            self.redirect(redirect)
 
-        # redirects to edit comments page with validity checks
-        if edit_comment:
-            comment_user = edit_comment.split('|')[-2]
 
-            if not user_id:
-                error = 'You must log in to edit comments.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only edit your own comments.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                self.redirect('/blog/edit-com/?edit_comment=%s' %
-                                                    edit_comment)
-
-        # deletes comments with validity checks
-        if delete_comment:
-            comment_user = delete_comment.split('|')[-2]
-
-            if not user_id:
-                error = 'You must log in to delete comments.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only delete your own comments.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                post.comments.remove(delete_comment)
-                post.put()
-                self.render('blog-comment-page.html', post = post,
-                             user_id = user_id)
-
-        # deletes posts with validity checks
-        if delete_post:
-            if not user_id:
-                error = 'You must log in to delete posts.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only delete your own posts.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                post.delete()
-                self.redirect('/blog')
-
-        # redirects to edit post page with validity checks
-        if edit_post:
-            if not user_id:
-                error = 'You must log in to edit posts.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only edit your own posts.'
-                self.render('blog-comment-page.html', post = post,
-                             error = error, user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                self.redirect('/blog/edit-post/?postid=%s' %
-                                        str(post.key().id()))
-
-# edit comments
-class EditComment(MainHandler):
+class EditComment(MainHandler, PostsHandler, LikesHandler, CommentsHandler):
+    '''Page to edit existing comments'''
     def get(self):
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
+        user_id, user = self.get_user()
+        exist_comment = self.request.get('exist_comment')
+        exist_comment_text = exist_comment.split('|')[0]
+        post = Blog.get_by_id(int(exist_comment.split('|')[-1]))
+        template = 'blog-edit-comment-page.html'
+        params = {'user': user, 'post': post,
+                  'comment_change': exist_comment_text}
+
+        if post:
+            self.render(template, **params)
         else:
-            user_id = None
-        edit_comment = self.request.get('edit_comment')
-        comment_text = edit_comment.split('|')[0]
-        key = edit_comment.split('|')[-1]
-        if key:
-            post = Blog.get_by_id(int(key))
-
-
-        if not key:
             self.error(404)
             return
 
-        self.render('blog-comment-page.html', post = post,
-                     comment = comment_text, user_id = user_id)
-
     def post(self):
-        edit_comment = self.request.get('edit_comment')
-        comment_text = edit_comment.split('|')[0]
-        key = edit_comment.split('|')[-1]
-        user_id_cookie = self.read_secure_cookie('user_id')
-        if user_id_cookie:
-            user_id = user_id_cookie.split('|')[0]
-        else:
-            user_id = None
-        like = self.request.get('like')
-        comment = self.request.get('comment')
+        user_id, user = self.get_user()
+        exist_comment = self.request.get('exist_comment')
+        post = Blog.get_by_id(int(exist_comment.split('|')[-1]))
+        (like, comment, delete_comment, edit_comment, delete_post,
+            edit_post) = self.get_blog_actions()
         comment_change = self.request.get('comment_change')
-        delete_comment = self.request.get('delete_comment')
-        edit_diff_comment = self.request.get('edit_comment')
-        delete_post = self.request.get('delete_post')
-        edit_post = self.request.get('edit_post')
+        template = 'blog-edit-comment-page.html'
+        params = {'user': user, 'post': post, 'comment_change': comment_change}
+        error = None
+        redirect = None
 
-        if key:
-            post = Blog.get_by_id(int(key))
+        if not user:
+            error = 'You must log in to act on posts'
+        else:
+            if like:
+                error = self.like(like, user_id)
 
-        # likes/unlikes post with validity checks
-        if like:
-            if not user_id:
-                error = 'You must log in to like posts.'
-                self.render('blog-comment-page.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
+            elif comment:
+                redirect = '/blog/com/?postid=%s' % comment
 
-            elif int(user_id) == post.user_id:
-                error = "You can't like your own post, ya egomaniac."
-                self.render('blog-cedit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
+            elif delete_comment:
+                error = self.delete_comm(user, delete_comment)
 
-            elif user_id in post.liked_by:
-                post.liked_by.remove(user_id)
-                post.likes += -1
-                post.put()
-                self.render('blog-comment-page.html', post = post,
-                        comment = comment_text, user_id = user_id)
+            elif edit_comment:
+                redirect, error = self.edit_comm_redirect(user, edit_comment)
 
-            elif like and user_id:
-                post.likes += 1
-                post.liked_by.append(user_id)
-                post.put()
-                self.render('blog-comment-page.html', post = post,
-                        comment = comment_text, user_id = user_id)
+            elif comment_change:
+                redirect, error = self.edit_comm_post(user, exist_comment,
+                                                      comment_change)
 
-        # redirects to comment on posts page with validity checks
-        if comment:
-            if not user_id:
-                error = 'You must log in to comment on posts.'
-                self.render('blog-comment-page.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
+            elif delete_post:
+                redirect, error = self.delete_post(delete_post, user_id)
 
-            elif comment and user_id:
-                self.redirect('/blog/com/?postid=%s' % comment)
+            elif edit_post:
+                redirect, error = self.edit_post_redirect(edit_post, user_id)
 
-        # edits comments with validity checks
-        if comment_change:
-            exist_comm_user = edit_comment.split('|')[-2]
+        if error:
+            params['error'] = error
 
-            if not user_id:
-                error = 'You must log in to edit comments.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != exist_comm_user:
-                error = 'You can only edit your own comments.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == exist_comm_user:
-                comment_index = post.comments.index(edit_comment)
-                commenting_user = UserInfo.by_id(user_id)
-                username = commenting_user.username
-                new_com = comment_change + '|' + username + '|' + key
-                post.comments[comment_index] = new_com
-                post.put()
-                self.redirect('/blog/pl/?postid=%s' % key)
-
-        # redirects to a page to edit a different comment with
-        # validity checks
-        if edit_diff_comment:
-            comment_user = edit_diff_comment.split('|')[-2]
-
-            if not user_id:
-                error = 'You must log in to edit comments.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only edit your own comments.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                self.render('blog-edit-comment.html', post = post,
-                        comment = comment_text, user_id = user_id)
+        if not redirect:
+            self.render(template, **params)
+        else:
+            self.redirect(redirect)
 
 
-        # deletes comments with validity checks
-        if delete_comment:
-            comment_user = delete_comment.split('|')[-2]
-
-            if not user_id:
-                error = 'You must log in to delete comments.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username != comment_user:
-                error = 'You can only delete your own comments.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif UserInfo.by_id(user_id).username == comment_user:
-                post.comments.remove(delete_comment)
-                post.put()
-                self.render('blog-edit-comment.html', post = post,
-                        comment = comment_text, user_id = user_id)
-
-        # deletes posts with validity checks
-        if delete_post:
-            if not user_id:
-                error = 'You must log in to delete posts.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only delete your own posts.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                post.delete()
-                self.redirect('/blog')
-
-        # redirects to edit posts page with validity checks
-        if edit_post:
-            if not user_id:
-                error = 'You must log in to edit posts.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif post.user_id != int(user_id):
-                error = 'You can only edit your own posts.'
-                self.render('blog-edit-comment.html', post = post,
-                             comment = comment_text, error = error,
-                             user_id = user_id)
-
-            elif post.user_id == int(user_id):
-                self.redirect('/blog/edit-post/?postid=%s' %
-                                            str(post.key().id()))
-
-
-# creates user entity
-class UserSignup(MainHandler):
+class UserSignup(MainHandler, ValidityChecksHandler):
+    '''Creates and stores new user entity in UserInfo database'''
     def get(self):
-        user_id = self.read_secure_cookie('user_id')
-        if user_id:
+        user_id, user = self.get_user()
+        template = 'blog-user-signup-page.html'
+        if user:
             self.redirect('/blog/welcome-page')
         else:
-            self.render('blog-user-signup-page.html')
+            self.render(template)
 
     def post(self):
         have_error = False
@@ -984,100 +581,91 @@ class UserSignup(MainHandler):
         password = self.request.get('password')
         confirm = self.request.get('confirm')
         email = self.request.get('email')
-
-        params = {'username' : username, 'email' : email}
+        template = 'blog-user-signup-page.html'
+        params = {'username': username, 'email': email}
 
         # validity checks for valid sign up information
-        if not valid_username(username):
-            params['error_inval_username'] = '''Please enter a valid
-                                        username, you little minx'''
+        if not self.valid_username(username):
+            params['error_inval_username'] = '''Please enter a valid username,
+                                                you little minx'''
             have_error = True
 
         if UserInfo.by_name(username):
-            params['error_unavail_username'] = '''This is hard for me
-                                        to say to you, but that
-                                        username is taken'''
+            params['error_unavail_username'] = '''This is hard for me to say to
+                                                  you, but that username is
+                                                  taken'''
             have_error = True
 
-        if not valid_password(password):
-            params['error_password'] = '''DANGER! PASSWORD DOES NOT
-                                        COMPUTE! BLEEP BLORP!'''
+        if not self.valid_password(password):
+            params['error_password'] = '''DANGER! PASSWORD DOES NOT COMPUTE!
+                                          BLEEP BLORP!'''
             have_error = True
         elif password != confirm:
             params['error_confirm'] = '''Stop it with these mis-matchy
-                                       passwords ya jive turkey'''
+                                         passwords ya jive turkey'''
             have_error = True
 
-        if not valid_email(email):
-            params['error_inval_email'] = '''UGHHHH we've been over
-                                             this!'''
+        if not self.valid_email(email):
+            params['error_inval_email'] = '''UGHHHH we've been over this!'''
             have_error = True
 
         if UserInfo.by_email(email):
-            params['error_unavail_email'] = '''ZOINKS! We already
-                            have that email registered'''
+            params['error_unavail_email'] = '''ZOINKS! We already have that
+                                               email registered'''
             have_error = True
 
-
         if have_error:
-            self.render('blog-user-signup-page.html', **params)
+            self.render(template, **params)
         else:
-            u = UserInfo(username = username, pw_hash = make_pw_hash(
-                username, password), email = email)
+            u = UserInfo.register(username, password, email)
             u.put()
-            user_id = str(u.key().id())
-            self.set_secure_cookie('user_id', user_id)
+            self.login(u)
             self.redirect('/blog/welcome-page')
 
-# landing page after successful signup/login
+
 class WelcomePage(MainHandler):
+    '''Landing page after successful signup/login'''
     def get(self):
-        user_id = self.read_secure_cookie('user_id')
-        if not user_id:
+        user_id, user = self.get_user()
+        if not user:
             self.redirect('/blog/login')
         else:
-            user = UserInfo.get_by_id(int(user_id.split('|')[0]))
-            username = user.username
-            self.render('blog-welcome-page.html',
-                         username = username)
+            template = 'blog-welcome-page.html'
+            params = {'user': user}
+            self.render(template, **params)
 
-# login page
+
 class Login(MainHandler):
-    def get(self, username = ''):
-        user_id = self.read_secure_cookie('user_id')
-        if user_id:
+    '''Log in page'''
+    def get(self):
+        user_id, user = self.get_user()
+        template = 'blog-login.html'
+        params = {'username': '', 'password': ''}
+        if user:
             self.redirect('/blog/welcome-page')
         else:
-            self.render('blog-login.html', username = username)
+            self.render(template, **params)
 
     def post(self):
-        have_error = False
         username = self.request.get('username')
         password = self.request.get('password')
-
+        template = 'blog-login.html'
+        params = {'username': username, 'password': ''}
         user = UserInfo.login(username, password)
 
-        if not username and valid_password(password):
-            error = 'You must enter your username and password.'
-            have_error = True
-        elif not user:
-            error = 'Not valid username and password combination.'
-            have_error = True
-
-        if have_error:
-            self.render('blog-login.html', username = username,
-                         error = error)
+        if not user:
+            params['error'] = 'Not valid username and password combination.'
+            self.render(template, **params)
         else:
             self.login(user)
             self.redirect('/blog/welcome-page')
 
-# logout page
+
 class Logout(MainHandler):
+    '''Logout page'''
     def get(self):
         self.logout()
         self.redirect('/blog/login')
-
-
 
 
 app = webapp2.WSGIApplication([('/blog', BlogMain),
@@ -1090,10 +678,5 @@ app = webapp2.WSGIApplication([('/blog', BlogMain),
                                ('/blog/pl/', Permalink),
                                ('/blog/login', Login),
                                ('/blog/logout', Logout)
-                              ],
+                               ],
                               debug=True)
-
-
-
-
-

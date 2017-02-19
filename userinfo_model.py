@@ -28,7 +28,7 @@ class UserInfo(db.Model):
 
     # creates user entity but DOES NOT store
     @classmethod
-    def register(cls, username, password, email=None):
+    def register(cls, username, password, email):
         pw_hash = make_pw_hash(username, password)
         return UserInfo(username=username,
                         pw_hash=pw_hash,
