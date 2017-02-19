@@ -15,161 +15,241 @@
 # limitations under the License.
 #
 
-# python libraries to import
-
+# python standard libraries to import
 import os
-import hashlib
-import hmac
-import datetime
+import datetime  # will use later to correct time zone to eastern standard time
 import jinja2
 import webapp2
-import random
 import re
-import string
+
+# other python libraries to import
 from google.appengine.ext import db
+from userinfo_model import UserInfo
+from blog_model import Blog
+from security import make_secure_val, check_secure_val
 
 # jinja2 templates set up
-
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
-jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader
-            (template_dir), autoescape = True)
-
-# secret key for hmac'ing user ID's
-
-secret = '''aab39e74ab89d8059645cbd9872bb358d735bc59b654e1c6156d292f3
-            0dc610c9fc1ab651d6853310b425f13a76e5d527fd02bcb7ea1ab4ce3
-            e16d47dada8a59'''
+jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader
+                               (template_dir), autoescape=True)
 
 
-# encryption functions
-
-def make_secure_val(val):
-    return '%s|%s' % (val, hmac.new(secret, val).hexdigest())
-
-def check_secure_val(secure_val):
-    val = secure_val.split('|')[0]
-    if secure_val == make_secure_val(val):
-        return val
-
-def make_salt():
-    return ''.join(random.choice(string.letters) for x in xrange(5))
-
-def make_pw_hash(username, pw, salt = None):
-    if not salt:
-        salt = make_salt()
-    h = hashlib.sha256(username+pw+salt).hexdigest()
-    return '%s|%s' % (h, salt)
-
-def check_pw_hash(username, pw, stored_hash):
-    salt = stored_hash.split('|')[1]
-    return stored_hash == make_pw_hash(username, pw, salt)
-
-# general handler functions
-class Handler(webapp2.RequestHandler):
-
-    # simplifies write
+# Handlers
+class MainHandler(webapp2.RequestHandler):
+    '''General Handler functions'''
     def write(self, *a, **kw):
+        '''Simplifies write'''
         self.response.out.write(*a, **kw)
 
-    # renders html file with jinja substitution
     def render_str(self, template, **params):
+        '''Renders html file with jinja substitution'''
         t = jinja_env.get_template(template)
         return t.render(params)
 
-    # adds write function to render_str to display page with jinja
-    # substution
     def render(self, template, **kw):
+        '''Adds write function to render_str to display page with jinja
+        substution'''
         self.write(self.render_str(template, **kw))
 
-    # sets cookie using hmac encyption for security
     def set_secure_cookie(self, name, val):
+        '''Sets cookie using hmac encyption for security'''
         cookie_val = make_secure_val(val)
         self.response.headers.add_header(
-            'Set-Cookie',
-            '%s=%s; Path=/' % (name, cookie_val))
+            'Set-Cookie', '%s=%s; Path=/' % (name, cookie_val))
 
-    # verifies user cookies with hmac function for validity
     def read_secure_cookie(self, name):
+        '''Verifies user cookies with hmac function for validity'''
         cookie_val = self.request.cookies.get(name)
         return cookie_val and check_secure_val(cookie_val)
 
-    # takes user_id and adds secure hmac cookie for it
-    def login(self, user_id): # user_id must be datastore entity
+    def login(self, user_id):
+        '''Takes user_id(must exist in UserInfo) and adds secure hmac cookie
+        for it'''
         user_id = str(user_id.key().id())
         self.set_secure_cookie('user_id', user_id)
 
-    # overwrites user_id function with null value
     def logout(self):
-        self.response.headers.add_header('Set-Cookie',
-                                         'user_id=; Path=/')
+        '''Overwrites user_id function with None value'''
+        self.response.headers.add_header('Set-Cookie', 'user_id=; Path=/')
 
-# username/password/email validity verification functions
 
-USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
-def valid_username(username):
-    return username and USER_RE.match(username)
+class RetrieveVarsHandler(MainHandler):
+    """functions that retrieve variables from cookies/url for blog"""
+    def get_user(self):
+        '''Retrieves user id from cookie, checks hmac encryption if user id exists
+        in UserInfo database. If user_id exists, returns user_id and user
+        entity. If not, returns None for both'''
+        user_id_cookie = self.read_secure_cookie('user_id')
+        if user_id_cookie:
+            user_id = user_id_cookie.split('|')[0]
+            user = UserInfo.by_id(int(user_id))
+            if not user:
+                user_id = None
+                user = None
+        else:
+            user_id = None
+            user = None
+        return user_id, user
 
-PASS_RE = re.compile(r"^.{3,20}$")
-def valid_password(password):
-    return password and PASS_RE.match(password)
+    def get_post(self):
+        '''Retrieves post id from url. If post id matches post in Blog
+        database, returns post, if not, returns None'''
+        key = self.request.get('postid')
+        if key:
+            post = Blog.get_by_id(int(key))
+        if not post:
+            post = None
+            return post
 
-EMAIL_RE  = re.compile(r'^[\S]+@[\S]+\.[\S]+$')
-def valid_email(email):
-    return not email or EMAIL_RE.match(email)
+    def get_blog_actions(self):
+        '''For post actions such as: liking (and unliking), commenting
+        (including editing and deleting comments), and deleting posts, pulls
+        variables from forms, and returns None values if they do not
+        exist'''
+        like = self.request.get('like')
+        if not like:
+            like = None
+        comment = self.request.get('comment')
+        if not comment:
+            comment = None
+        delete_comment = self.request.get('delete_comment')
+        if not delete_comment:
+            delete_comment = None
+        edit_comment = self.request.get('edit_comment')
+        if not edit_comment:
+            edit_comment = None
+        delete_post = self.request.get('delete_post')
+        if not delete_post:
+            delete_post = None
+        edit_post = self.request.get('edit_post')
+        if not edit_post:
+            edit_post = None
+        return like, comment, delete_comment, edit_comment, delete_post,
+        edit_post
 
-# blog post db
-class Blog(db.Model):
-    subject = db.StringProperty(required = True)
-    post = db.TextProperty(required = True)
-    user_id = db.IntegerProperty(required = True)
-    username = db.StringProperty(required = True)
-    created = db.DateTimeProperty(auto_now_add = True)
-    last_modified = db.DateTimeProperty(auto_now = True)
-    likes = db.IntegerProperty(required = True)
-    comments = db.StringListProperty()
-    liked_by = db.StringListProperty()
 
-# user db
-class UserInfo(db.Model):
-    username = db.StringProperty(required = True)
-    pw_hash = db.StringProperty(required = True)
-    email = db.StringProperty(required = True)
+class ValidityChecksHandler():
+    """Checks validity of signup parameters, ie. username, password, email"""
+    def valid_username(self, username):
+        USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
+        return username and USER_RE.match(username)
 
-# classmethod functions for class UserInfo
+    def valid_password(self, password):
+        PASS_RE = re.compile(r"^.{3,20}$")
+        return password and PASS_RE.match(password)
 
-    # looks up user entity by id number
-    @classmethod
-    def by_id(cls, u_id):
-        return UserInfo.get_by_id(int(u_id))
+    def valid_email(self, email):
+        EMAIL_RE = re.compile(r'^[\S]+@[\S]+\.[\S]+$')
+        return not email or EMAIL_RE.match(email)
 
-    # looks up user entity by username
-    @classmethod
-    def by_name(cls, name):
-        return UserInfo.all().filter('username =', name).get()
 
-    # looks up user entity by email
-    @classmethod
-    def by_email(cls, email):
-        return UserInfo.all().filter('email =', email).get()
+class PostsHandler():
+    """Functions for new posts and editing posts"""
+    def new_post(self, subject, post, user):
+        '''Creates a new post and stores to Blog database'''
+        username = user.username
+        user_id = int(user.key().id())
+        p = Blog(subject=subject, post=post, user_id=user_id,
+                 username=username, likes=0)
+        p.put()
+        post_id_str = str(p.key().id())
+        return post_id_str
 
-    # creates user entity but DOES NOT store
-    @classmethod
-    def register(cls, username, password, email = None):
-        pw_hash = make_pw_hash(username, password)
-        return UserInfo(username = username,
-                        pw_hash = pw_hash,
-                        email = email)
+    def edit_post(self, post, user_id, new_subject, new_post):
+        '''Edits exising post & subject and stores new vals to Blog Database'''
+        if post.user_id != int(user_id):
+            error = 'You can only edit your own posts'
+            return error
+        else:
+            post.subject = new_subject
+            post.post = new_post
+            post.put()
+            post_id_str = str(post.key().id())
+            return post_id_str
 
-    # verifies username + pw, if true, returns user entity
-    @classmethod
-    def login(cls, username, password):
-        user = cls.by_name(username)
-        if user:
-            if check_pw_hash(username, password, user.pw_hash):
-                return user
+
+class LikesHandler():
+    """Contains function to like/unlike post & store data to Blog database
+    including permission check"""
+    def like(self, post, user_id):
+        if int(user_id) == post.user_id:
+            error = 'You cannnot like your own post, you egomaniac.'
+            return error
+        elif user_id in post.liked_by:
+            post.liked_by.remove(user_id)
+            post.likes += -1
+            post.put()
+        elif user_id not in post.liked_by:
+            post.likes += 1
+            post.liked_by.append(user_id)
+            post.put()
+
+
+class CommentsHandler():
+    """Contains functions to add, edit, and delete comments"""
+    def add_comm(self, post, user, comment):
+        username = user.username
+        post_id_str = str(post.key().id())
+        post.comments.append(comment + '|' + username + '|' + post_id_str)
+        post.put()
+
+    def edit_comm(self, user, exist_comment, comment_change):
+        post_id = exist_comment.split('|')[-1]
+        post = Blog.get_by_id(int(post_id))
+        exist_comment_user = exist_comment.split('|')[-2]
+        username = user.username
+        if username != exist_comment_user:
+            error = 'You can only edit your own comments.'
+            return error
+        else:
+            comment_index = post.comments.index(exist_comment)
+            new_comment = comment_change + '|' + username + '|' + post_id
+            post.comments[comment_index] = new_comment
+            post.put()
+
+    def delete_comm():
+        pass
+
+
+
+        if delete_comment:
+            post = Blog.get_by_id(int(delete_comment.split('|')[-1]))
+            comment_user = delete_comment.split('|')[-2]
+
+            if not user_id:
+                error = 'You must log in to delete comments.'
+                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
+                                       created DESC LIMIT 10''')
+                self.render('blog-main.html', posts = posts,
+                             error = error, user_id = user_id)
+
+            elif UserInfo.by_id(user_id).username != comment_user:
+                error = 'You can only delete your own comments.'
+                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
+                                       created DESC LIMIT 10''')
+                self.render('blog-main.html', posts = posts,
+                             error = error, user_id = user_id)
+
+            elif UserInfo.by_id(user_id).username == comment_user:
+                post.comments.remove(delete_comment)
+                post.put()
+                posts = db.GqlQuery('''SELECT * FROM Blog ORDER BY
+                                       created DESC LIMIT 10''')
+                self.render('blog-main.html', posts = posts,
+                             user_id = user_id)
+
+
+
+
+
+
+
+
+
+
 
 # blog main page that lists entries
-class BlogMain(Handler):
+class BlogMain(MainHandler):
     def get(self):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
@@ -345,13 +425,13 @@ class BlogMain(Handler):
 
 
 # new post page
-class NewPost(Handler):
+class NewPost(MainHandler):
     def get(self):
         user_id = self.read_secure_cookie('user_id')
         if not user_id:
             self.redirect('/blog/login')
         else:
-            self.render('blog-new-post.html')
+            self.render('blog-post-page.html')
 
     def post(self):
         subject = self.request.get("subject")
@@ -371,11 +451,11 @@ class NewPost(Handler):
         else:
             error = '''You must provide a Subject and Post to submit
                        your entry, you jabroni.'''
-            self.render('blog-new-post.html', subject = subject,
+            self.render('blog-post-page.html', subject = subject,
                         post = post, error = error)
 
 # edit post page
-class EditPost(Handler):
+class EditPost(MainHandler):
     def get(self):
         user_id = self.read_secure_cookie('user_id')
         post_id = self.request.get('postid')
@@ -383,7 +463,7 @@ class EditPost(Handler):
         if not user_id:
             self.redirect('/blog/login')
         else:
-            self.render('blog-edit-post.html',
+            self.render('blog-post-page.html',
                          subject = post_to_edit.subject,
                          post = post_to_edit.post)
 
@@ -398,11 +478,11 @@ class EditPost(Handler):
         if not subject and post:
             error = '''You must provide a Subject and Post to submit
                        your entry, you jabroni.'''
-            self.render('blog-edit-post.html', subject = subject,
+            self.render('blog-post-page.html', subject = subject,
                         post = post, error = error)
         elif post_to_edit.user_id != int(user_id):
             error = 'You can only edit your own posts'
-            self.render('blog-edit-post.html', subject = subject,
+            self.render('blog-post-page.html', subject = subject,
                         post = post, error = error)
         elif post_to_edit.user_id == int(user_id):
             post_to_edit.subject = subject
@@ -412,7 +492,7 @@ class EditPost(Handler):
                             str(post_to_edit.key().id()))
 
 # permalink page
-class Permalink(Handler):
+class Permalink(MainHandler):
     def get(self):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
@@ -555,7 +635,7 @@ class Permalink(Handler):
                                             str(post.key().id()))
 
 # comment page
-class Comment(Handler):
+class Comment(MainHandler):
     def get(self):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
@@ -703,7 +783,7 @@ class Comment(Handler):
                                         str(post.key().id()))
 
 # edit comments
-class EditComment(Handler):
+class EditComment(MainHandler):
     def get(self):
         user_id_cookie = self.read_secure_cookie('user_id')
         if user_id_cookie:
@@ -721,7 +801,7 @@ class EditComment(Handler):
             self.error(404)
             return
 
-        self.render('blog-edit-comment.html', post = post,
+        self.render('blog-comment-page.html', post = post,
                      comment = comment_text, user_id = user_id)
 
     def post(self):
@@ -748,7 +828,7 @@ class EditComment(Handler):
         if like:
             if not user_id:
                 error = 'You must log in to like posts.'
-                self.render('blog-edit-comment.html', post = post,
+                self.render('blog-comment-page.html', post = post,
                              comment = comment_text, error = error,
                              user_id = user_id)
 
@@ -762,21 +842,21 @@ class EditComment(Handler):
                 post.liked_by.remove(user_id)
                 post.likes += -1
                 post.put()
-                self.render('blog-edit-comment.html', post = post,
+                self.render('blog-comment-page.html', post = post,
                         comment = comment_text, user_id = user_id)
 
             elif like and user_id:
                 post.likes += 1
                 post.liked_by.append(user_id)
                 post.put()
-                self.render('blog-edit-comment.html', post = post,
+                self.render('blog-comment-page.html', post = post,
                         comment = comment_text, user_id = user_id)
 
         # redirects to comment on posts page with validity checks
         if comment:
             if not user_id:
                 error = 'You must log in to comment on posts.'
-                self.render('blog-edit-comment.html', post = post,
+                self.render('blog-comment-page.html', post = post,
                              comment = comment_text, error = error,
                              user_id = user_id)
 
@@ -890,7 +970,7 @@ class EditComment(Handler):
 
 
 # creates user entity
-class UserSignup(Handler):
+class UserSignup(MainHandler):
     def get(self):
         user_id = self.read_secure_cookie('user_id')
         if user_id:
@@ -950,7 +1030,7 @@ class UserSignup(Handler):
             self.redirect('/blog/welcome-page')
 
 # landing page after successful signup/login
-class WelcomePage(Handler):
+class WelcomePage(MainHandler):
     def get(self):
         user_id = self.read_secure_cookie('user_id')
         if not user_id:
@@ -962,7 +1042,7 @@ class WelcomePage(Handler):
                          username = username)
 
 # login page
-class Login(Handler):
+class Login(MainHandler):
     def get(self, username = ''):
         user_id = self.read_secure_cookie('user_id')
         if user_id:
@@ -992,7 +1072,7 @@ class Login(Handler):
             self.redirect('/blog/welcome-page')
 
 # logout page
-class Logout(Handler):
+class Logout(MainHandler):
     def get(self):
         self.logout()
         self.redirect('/blog/login')
