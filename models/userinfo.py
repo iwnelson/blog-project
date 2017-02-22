@@ -1,6 +1,6 @@
 # libraries to import
 from google.appengine.ext import db
-from security import make_pw_hash, check_pw_hash
+from modules.security import make_pw_hash, check_pw_hash
 
 
 # user db

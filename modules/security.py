@@ -5,7 +5,7 @@ import random
 import string
 
 # other modules to import
-from hmac_secret import secret
+from modules.hmac_secret import secret
 
 
 # encryption functions
